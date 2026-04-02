@@ -11,16 +11,17 @@ var cosmosAccountName = 'cosmos-${resourceToken}'
 var swaName = 'swa-taskapp-${resourceToken}'
 
 // ── Cosmos DB (Free Tier: 1000 RU/s + 25 GB free) ──
+// Colocated with SWA for minimal API-to-DB latency
 
 resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
   name: cosmosAccountName
-  location: location
+  location: swaLocation
   properties: {
     databaseAccountOfferType: 'Standard'
     enableFreeTier: true
     locations: [
       {
-        locationName: location
+        locationName: swaLocation
         failoverPriority: 0
         isZoneRedundant: false
       }
