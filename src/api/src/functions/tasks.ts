@@ -77,18 +77,6 @@ app.http("updateTask", {
       return { status: 404, jsonBody: { error: "Task not found" } };
     }
 
-    // If setting as current, unset any other current task
-    if (body.isCurrent === true) {
-      const { resources: currentTasks } = await tasksContainer.items
-        .query({ query: "SELECT * FROM c WHERE c.isCurrent = true" })
-        .fetchAll();
-      for (const ct of currentTasks) {
-        if (ct.id !== id) {
-          await tasksContainer.item(ct.id, ct.listId).replace({ ...ct, isCurrent: false });
-        }
-      }
-    }
-
     const updated = {
       ...existing,
       ...(typeof body.isCurrent === "boolean" && { isCurrent: body.isCurrent }),

@@ -27,11 +27,10 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const currentTask = tasks.find(t => t.isCurrent);
+  const currentTasks = tasks.filter(t => t.isCurrent);
 
-  const handleSetCurrent = async (task: Task) => {
-    if (task.isCurrent) return;
-    await api.updateTask(task.id, task.listId, { isCurrent: true });
+  const handleToggleCurrent = async (task: Task) => {
+    await api.updateTask(task.id, task.listId, { isCurrent: !task.isCurrent });
     load();
   };
 
@@ -70,11 +69,17 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
         <h1>Tasks</h1>
       </header>
 
-      {currentTask && (
+      {currentTasks.length > 0 && (
         <div className="current-banner">
-          <span className="current-label">Working on</span>
-          <span className="current-text">{currentTask.text}</span>
-          <button className="done-btn" onClick={() => handleMarkDone(currentTask)}>✓ Done</button>
+          <span className="current-label">Working on ({currentTasks.length})</span>
+          <div className="current-items">
+            {currentTasks.map(t => (
+              <div key={t.id} className="current-item">
+                <span className="current-text">{t.text}</span>
+                <button className="done-btn" onClick={() => handleMarkDone(t)}>✓ Done</button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -107,7 +112,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
                 <div
                   key={task.id}
                   className={`task-row${task.isCurrent ? ' current' : ''}`}
-                  onClick={() => handleSetCurrent(task)}
+                  onClick={() => handleToggleCurrent(task)}
                 >
                   <span className="task-indicator">{task.isCurrent ? '●' : '○'}</span>
                   <span className="task-text">{task.text}</span>
