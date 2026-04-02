@@ -39,6 +39,11 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
     load();
   };
 
+  const handleReopen = async (task: Task) => {
+    await api.updateTask(task.id, task.listId, { isDone: false });
+    load();
+  };
+
   const handleAddList = async () => {
     const name = newListName.trim();
     if (!name) return;
@@ -76,6 +81,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
             {currentTasks.map(t => (
               <div key={t.id} className="current-item">
                 <span className="current-text">{t.text}</span>
+                <button className="unmark-btn" onClick={() => handleToggleCurrent(t)}>✕</button>
                 <button className="done-btn" onClick={() => handleMarkDone(t)}>✓ Done</button>
               </div>
             ))}
@@ -130,6 +136,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
                     <div key={task.id} className="task-row done">
                       <span className="task-indicator">✓</span>
                       <span className="task-text">{task.text}</span>
+                      <button className="reopen-btn" onClick={() => handleReopen(task)}>↩</button>
                     </div>
                   ))}
                 </div>

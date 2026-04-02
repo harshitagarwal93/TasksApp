@@ -80,7 +80,8 @@ app.http("updateTask", {
     const updated = {
       ...existing,
       ...(typeof body.isCurrent === "boolean" && { isCurrent: body.isCurrent }),
-      ...(body.isDone === true && { isDone: true, isCurrent: false, completedAt: new Date().toISOString() })
+      ...(body.isDone === true && { isDone: true, isCurrent: false, completedAt: new Date().toISOString() }),
+      ...(body.isDone === false && { isDone: false, completedAt: undefined })
     };
 
     const { resource } = await tasksContainer.item(id, listId).replace(updated);
