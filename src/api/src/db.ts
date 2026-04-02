@@ -1,3 +1,8 @@
+import * as nodeCrypto from "crypto";
+if (typeof globalThis.crypto === "undefined") {
+  (globalThis as unknown as { crypto: typeof nodeCrypto }).crypto = nodeCrypto;
+}
+
 import { CosmosClient } from "@azure/cosmos";
 
 const client = new CosmosClient(process.env.COSMOSDB_CONNECTION_STRING!);
