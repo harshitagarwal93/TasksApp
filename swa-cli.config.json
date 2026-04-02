@@ -1,0 +1,12 @@
+{
+  "$schema": "https://aka.ms/azure/static-web-apps-cli/schema",
+  "configurations": {
+    "default": {
+      "appLocation": "src/web",
+      "outputLocation": "dist",
+      "apiLocation": "src/api",
+      "appBuildCommand": "npm run build",
+      "apiBuildCommand": "npm run build"
+    }
+  }
+}

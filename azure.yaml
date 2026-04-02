@@ -1,0 +1,11 @@
+name: taskapp
+infra:
+  provider: bicep
+  path: infra
+services:
+  web:
+    project:
+      path: src/web
+    dist: dist
+    language: js
+    host: staticwebapp
