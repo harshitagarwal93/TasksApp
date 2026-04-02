@@ -10,10 +10,19 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const [l, t] = await Promise.all([api.getLists(), api.getTasks()]);
-    setLists(l);
-    setTasks(t);
-    setLoading(false);
+    try {
+      const [l, t] = await Promise.all([api.getLists(), api.getTasks()]);
+      setLists(l);
+      setTasks(t);
+    } catch {
+      // If tasks fails, still try to load lists
+      try {
+        const l = await api.getLists();
+        setLists(l);
+      } catch { /* noop */ }
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);

@@ -13,10 +13,10 @@ app.http("getTasks", {
     let parameters: { name: string; value: string }[] = [];
 
     if (listId) {
-      query = "SELECT * FROM c WHERE c.listId = @listId ORDER BY c.isDone ASC, c.createdAt ASC";
+      query = "SELECT * FROM c WHERE c.listId = @listId ORDER BY c.createdAt ASC";
       parameters = [{ name: "@listId", value: listId }];
     } else {
-      query = "SELECT * FROM c ORDER BY c.isDone ASC, c.createdAt ASC";
+      query = "SELECT * FROM c ORDER BY c.createdAt ASC";
     }
 
     const { resources } = await tasksContainer.items
