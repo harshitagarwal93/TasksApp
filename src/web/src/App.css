@@ -406,6 +406,17 @@ input:focus, select:focus, textarea:focus {
 
 .move-btn:hover { color: var(--blue); }
 
+.delete-task-btn {
+  padding: 4px 8px;
+  background: none;
+  color: var(--muted);
+  font-size: .875rem;
+  flex-shrink: 0;
+  border: none;
+}
+
+.delete-task-btn:hover { color: #dc2626; }
+
 .move-overlay {
   position: fixed;
   inset: 0;

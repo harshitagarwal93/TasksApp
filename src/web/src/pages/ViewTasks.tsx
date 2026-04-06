@@ -66,6 +66,12 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
     }
   };
 
+  const handleDeleteTask = (task: Task) => {
+    prevTasks.current = tasks;
+    setTasks(prev => prev.filter(t => t.id !== task.id));
+    api.deleteTask(task.id, task.listId).catch(() => setTasks(prevTasks.current));
+  };
+
   const handleAddList = async () => {
     const name = newListName.trim();
     if (!name) return;
@@ -165,6 +171,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
                   <span className="task-indicator">{task.isCurrent ? '●' : '○'}</span>
                   <span className="task-text">{task.text}</span>
                   <button className="move-btn" onClick={e => { e.stopPropagation(); setMovingTask(task); }} aria-label="Move task">⇄</button>
+                  <button className="delete-task-btn" onClick={e => { e.stopPropagation(); handleDeleteTask(task); }} aria-label="Delete task">−</button>
                   {task.isCurrent && (
                     <button className="done-btn-sm" onClick={e => { e.stopPropagation(); handleMarkDone(task); }}>✓</button>
                   )}
@@ -180,6 +187,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
                       <span className="task-indicator">✓</span>
                       <span className="task-text">{task.text}</span>
                       <button className="move-btn" onClick={() => setMovingTask(task)} aria-label="Move task">⇄</button>
+                      <button className="delete-task-btn" onClick={() => handleDeleteTask(task)} aria-label="Delete task">−</button>
                       <button className="reopen-btn" onClick={() => handleReopen(task)}>↩</button>
                     </div>
                   ))}

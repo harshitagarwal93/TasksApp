@@ -138,3 +138,19 @@ app.http("moveTask", {
     return { jsonBody: moved };
   }
 });
+
+app.http("deleteTask", {
+  methods: ["DELETE"],
+  authLevel: "anonymous",
+  route: "tasks/{id}",
+  handler: async (request: HttpRequest, _context: InvocationContext): Promise<HttpResponseInit> => {
+    const id = request.params.id;
+    if (!id) return { status: 400, jsonBody: { error: "Missing id" } };
+
+    const listId = request.query.get("listId");
+    if (!listId) return { status: 400, jsonBody: { error: "listId query param is required" } };
+
+    await tasksContainer.item(id, listId).delete();
+    return { status: 204 };
+  }
+});

@@ -59,3 +59,10 @@ export async function moveTask(id: string, fromListId: string, toListId: string)
   if (!res.ok) throw new Error('Failed to move task');
   return res.json();
 }
+
+export async function deleteTask(id: string, listId: string): Promise<void> {
+  const res = await fetch(`${BASE}/tasks/${encodeURIComponent(id)}?listId=${encodeURIComponent(listId)}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) throw new Error('Failed to delete task');
+}
