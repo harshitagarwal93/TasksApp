@@ -1,8 +1,5 @@
 targetScope = 'resourceGroup'
 
-@description('Primary location for resources')
-param location string = resourceGroup().location
-
 @description('Static Web App location (Free tier available in: centralus, eastus2, westus2, westeurope, eastasia)')
 param swaLocation string = 'centralus'
 
