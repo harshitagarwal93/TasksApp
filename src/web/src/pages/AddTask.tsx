@@ -2,6 +2,24 @@ import { useState, useEffect, useCallback } from 'react';
 import type { TaskList } from '../types';
 import * as api from '../api';
 
+function useKeyboardOffset() {
+  const [offset, setOffset] = useState(0);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      setOffset(window.innerHeight - vv.height);
+    };
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+  return offset;
+}
+
 export default function AddTask({ onBack }: { onBack: () => void }) {
   const [lists, setLists] = useState<TaskList[]>([]);
   const [listId, setListId] = useState('');
@@ -32,6 +50,7 @@ export default function AddTask({ onBack }: { onBack: () => void }) {
   };
 
   const canSubmit = text.trim().length > 0 && text.trim().length <= 100 && !!listId && !submitting;
+  const kbOffset = useKeyboardOffset();
 
   return (
     <div className="add-task">
@@ -59,11 +78,16 @@ export default function AddTask({ onBack }: { onBack: () => void }) {
             {lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         </div>
-        <button className="submit-btn" onClick={handleSubmit} disabled={!canSubmit}>
+        <button
+          className="submit-btn"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          style={kbOffset > 0 ? { marginTop: 0, marginBottom: 0, position: 'fixed', bottom: kbOffset, left: 0, right: 0, borderRadius: 0, zIndex: 20 } : undefined}
+        >
           {submitting ? 'Adding...' : 'Add Task'}
         </button>
       </div>
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div className="toast" style={kbOffset > 0 ? { bottom: kbOffset + 60 } : undefined}>{toast}</div>}
     </div>
   );
 }
