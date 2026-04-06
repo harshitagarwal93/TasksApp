@@ -4,8 +4,7 @@ infra:
   path: infra
 services:
   web:
-    project:
-      path: src/web
+    project: src/web
     dist: dist
     language: js
     host: staticwebapp
