@@ -88,3 +88,38 @@ app.http("updateTask", {
     return { jsonBody: resource };
   }
 });
+
+app.http("moveTask", {
+  methods: ["POST"],
+  authLevel: "anonymous",
+  route: "tasks/{id}/move",
+  handler: async (request: HttpRequest, _context: InvocationContext): Promise<HttpResponseInit> => {
+    const id = request.params.id;
+    if (!id) return { status: 400, jsonBody: { error: "Missing id" } };
+
+    const body = await request.json() as { fromListId?: string; toListId?: string };
+    const fromListId = typeof body.fromListId === "string" ? body.fromListId.trim() : "";
+    const toListId = typeof body.toListId === "string" ? body.toListId.trim() : "";
+    if (!fromListId || !toListId) {
+      return { status: 400, jsonBody: { error: "fromListId and toListId are required" } };
+    }
+
+    const { resource: existing } = await tasksContainer.item(id, fromListId).read();
+    if (!existing) {
+      return { status: 404, jsonBody: { error: "Task not found" } };
+    }
+
+    // Delete from old partition, create in new one
+    const moved = { ...existing, listId: toListId };
+    delete moved._rid;
+    delete moved._self;
+    delete moved._etag;
+    delete moved._attachments;
+    delete moved._ts;
+
+    await tasksContainer.items.create(moved);
+    await tasksContainer.item(id, fromListId).delete();
+
+    return { jsonBody: moved };
+  }
+});

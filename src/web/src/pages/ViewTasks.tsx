@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TaskList, Task } from '../types';
 import * as api from '../api';
 
@@ -8,6 +8,8 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
   const [newListName, setNewListName] = useState('');
   const [expandedDone, setExpandedDone] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [movingTask, setMovingTask] = useState<Task | null>(null);
+  const prevTasks = useRef<Task[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -15,7 +17,6 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
       setLists(l);
       setTasks(t);
     } catch {
-      // If tasks fails, still try to load lists
       try {
         const l = await api.getLists();
         setLists(l);
@@ -29,19 +30,40 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
 
   const currentTasks = tasks.filter(t => t.isCurrent);
 
-  const handleToggleCurrent = async (task: Task) => {
-    await api.updateTask(task.id, task.listId, { isCurrent: !task.isCurrent });
-    load();
+  const optimisticUpdate = (taskId: string, changes: Partial<Task>, apiCall: () => Promise<unknown>) => {
+    prevTasks.current = tasks;
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...changes } : t));
+    apiCall().catch(() => setTasks(prevTasks.current));
   };
 
-  const handleMarkDone = async (task: Task) => {
-    await api.updateTask(task.id, task.listId, { isDone: true, isCurrent: false });
-    load();
+  const handleToggleCurrent = (task: Task) => {
+    optimisticUpdate(task.id, { isCurrent: !task.isCurrent }, () =>
+      api.updateTask(task.id, task.listId, { isCurrent: !task.isCurrent })
+    );
   };
 
-  const handleReopen = async (task: Task) => {
-    await api.updateTask(task.id, task.listId, { isDone: false });
-    load();
+  const handleMarkDone = (task: Task) => {
+    optimisticUpdate(task.id, { isDone: true, isCurrent: false, completedAt: new Date().toISOString() }, () =>
+      api.updateTask(task.id, task.listId, { isDone: true, isCurrent: false })
+    );
+  };
+
+  const handleReopen = (task: Task) => {
+    optimisticUpdate(task.id, { isDone: false, completedAt: undefined }, () =>
+      api.updateTask(task.id, task.listId, { isDone: false })
+    );
+  };
+
+  const handleMoveTask = async (task: Task, newListId: string) => {
+    setMovingTask(null);
+    if (newListId === task.listId) return;
+    prevTasks.current = tasks;
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, listId: newListId } : t));
+    try {
+      await api.moveTask(task.id, task.listId, newListId);
+    } catch {
+      setTasks(prevTasks.current);
+    }
   };
 
   const handleAddList = async () => {
@@ -101,6 +123,26 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
         <button onClick={handleAddList} disabled={!newListName.trim()}>+ List</button>
       </div>
 
+      {movingTask && (
+        <div className="move-overlay" onClick={() => setMovingTask(null)}>
+          <div className="move-dialog" onClick={e => e.stopPropagation()}>
+            <h3>Move to list</h3>
+            <p className="move-task-text">{movingTask.text}</p>
+            {lists.map(l => (
+              <button
+                key={l.id}
+                className={`move-option${l.id === movingTask.listId ? ' current-list' : ''}`}
+                onClick={() => handleMoveTask(movingTask, l.id)}
+                disabled={l.id === movingTask.listId}
+              >
+                {l.name}{l.id === movingTask.listId ? ' (current)' : ''}
+              </button>
+            ))}
+            <button className="move-cancel" onClick={() => setMovingTask(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       <div className="lists-grid">
         {lists.map(list => {
           const active = tasks.filter(t => t.listId === list.id && !t.isDone);
@@ -122,6 +164,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
                 >
                   <span className="task-indicator">{task.isCurrent ? '●' : '○'}</span>
                   <span className="task-text">{task.text}</span>
+                  <button className="move-btn" onClick={e => { e.stopPropagation(); setMovingTask(task); }} aria-label="Move task">⇄</button>
                   {task.isCurrent && (
                     <button className="done-btn-sm" onClick={e => { e.stopPropagation(); handleMarkDone(task); }}>✓</button>
                   )}
@@ -136,6 +179,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
                     <div key={task.id} className="task-row done">
                       <span className="task-indicator">✓</span>
                       <span className="task-text">{task.text}</span>
+                      <button className="move-btn" onClick={() => setMovingTask(task)} aria-label="Move task">⇄</button>
                       <button className="reopen-btn" onClick={() => handleReopen(task)}>↩</button>
                     </div>
                   ))}

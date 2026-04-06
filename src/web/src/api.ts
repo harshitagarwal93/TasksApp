@@ -49,3 +49,13 @@ export async function updateTask(id: string, listId: string, updates: Partial<Pi
   if (!res.ok) throw new Error('Failed to update task');
   return res.json();
 }
+
+export async function moveTask(id: string, fromListId: string, toListId: string): Promise<Task> {
+  const res = await fetch(`${BASE}/tasks/${encodeURIComponent(id)}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fromListId, toListId })
+  });
+  if (!res.ok) throw new Error('Failed to move task');
+  return res.json();
+}
