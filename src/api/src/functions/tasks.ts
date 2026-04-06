@@ -1,6 +1,17 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { tasksContainer } from "../db";
+import { tasksContainer, listsContainer, tenantId } from "../db";
 import * as crypto from "crypto";
+
+// Helper: get list IDs visible to this tenant
+async function getVisibleListIds(): Promise<string[]> {
+  const { resources } = await listsContainer.items
+    .query({
+      query: "SELECT c.id FROM c WHERE c.tenantId = @tid OR c.tenantId = 'shared'",
+      parameters: [{ name: "@tid", value: tenantId }]
+    })
+    .fetchAll();
+  return resources.map((r: { id: string }) => r.id);
+}
 
 app.http("getTasks", {
   methods: ["GET"],
@@ -16,7 +27,11 @@ app.http("getTasks", {
       query = "SELECT * FROM c WHERE c.listId = @listId ORDER BY c.createdAt ASC";
       parameters = [{ name: "@listId", value: listId }];
     } else {
-      query = "SELECT * FROM c ORDER BY c.createdAt ASC";
+      // Only return tasks for lists this tenant can see
+      const visibleIds = await getVisibleListIds();
+      if (visibleIds.length === 0) return { jsonBody: [] };
+      query = `SELECT * FROM c WHERE ARRAY_CONTAINS(@ids, c.listId) ORDER BY c.createdAt ASC`;
+      parameters = [{ name: "@ids", value: visibleIds as unknown as string }];
     }
 
     const { resources } = await tasksContainer.items

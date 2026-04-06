@@ -8,7 +8,8 @@ param swaLocation string = 'centralus'
 
 var resourceToken = uniqueString(resourceGroup().id)
 var cosmosAccountName = 'cosmos-${resourceToken}'
-var swaName = 'swa-taskapp-${resourceToken}'
+var swa1Name = 'swa-taskapp1-${resourceToken}'
+var swa2Name = 'swa-taskapp2-${resourceToken}'
 
 // ── Cosmos DB (Free Tier: 1000 RU/s + 25 GB free) ──
 // Colocated with SWA for minimal API-to-DB latency
@@ -63,10 +64,10 @@ resource tasksContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/cont
   }
 }
 
-// ── Static Web App (Free Tier) ──
+// ── Static Web App 1 (Free Tier) — User 1 ──
 
-resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
-  name: swaName
+resource staticWebApp1 'Microsoft.Web/staticSites@2023-12-01' = {
+  name: swa1Name
   location: swaLocation
   sku: {
     name: 'Free'
@@ -75,16 +76,40 @@ resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = {
   properties: {}
 }
 
-resource swaAppSettings 'Microsoft.Web/staticSites/config@2023-12-01' = {
-  parent: staticWebApp
+resource swa1AppSettings 'Microsoft.Web/staticSites/config@2023-12-01' = {
+  parent: staticWebApp1
   name: 'appsettings'
   properties: {
     COSMOSDB_CONNECTION_STRING: cosmosAccount.listConnectionStrings().connectionStrings[0].connectionString
+    TENANT_ID: 'user1'
+  }
+}
+
+// ── Static Web App 2 (Free Tier) — User 2 ──
+
+resource staticWebApp2 'Microsoft.Web/staticSites@2023-12-01' = {
+  name: swa2Name
+  location: swaLocation
+  sku: {
+    name: 'Free'
+    tier: 'Free'
+  }
+  properties: {}
+}
+
+resource swa2AppSettings 'Microsoft.Web/staticSites/config@2023-12-01' = {
+  parent: staticWebApp2
+  name: 'appsettings'
+  properties: {
+    COSMOSDB_CONNECTION_STRING: cosmosAccount.listConnectionStrings().connectionStrings[0].connectionString
+    TENANT_ID: 'user2'
   }
 }
 
 // ── Outputs ──
 
-output STATIC_WEB_APP_NAME string = staticWebApp.name
-output STATIC_WEB_APP_URL string = 'https://${staticWebApp.properties.defaultHostname}'
+output SWA1_NAME string = staticWebApp1.name
+output SWA1_URL string = 'https://${staticWebApp1.properties.defaultHostname}'
+output SWA2_NAME string = staticWebApp2.name
+output SWA2_URL string = 'https://${staticWebApp2.properties.defaultHostname}'
 output COSMOS_ACCOUNT_NAME string = cosmosAccount.name

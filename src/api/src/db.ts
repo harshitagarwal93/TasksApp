@@ -10,3 +10,4 @@ const database = client.database("taskapp");
 
 export const listsContainer = database.container("lists");
 export const tasksContainer = database.container("tasks");
+export const tenantId = process.env.TENANT_ID || "default";

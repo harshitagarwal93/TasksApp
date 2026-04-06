@@ -1,8 +1,9 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { listsContainer, tasksContainer } from "../db";
+import { listsContainer, tasksContainer, tenantId } from "../db";
 import * as crypto from "crypto";
 
-const DEFAULT_LISTS = ["Work", "Home", "Personal"];
+const SHARED_LISTS = ["Home"];
+const PRIVATE_DEFAULTS = ["Work", "Personal"];
 
 app.http("getLists", {
   methods: ["GET"],
@@ -10,17 +11,35 @@ app.http("getLists", {
   route: "lists",
   handler: async (_request: HttpRequest, _context: InvocationContext): Promise<HttpResponseInit> => {
     const { resources } = await listsContainer.items
-      .query("SELECT * FROM c ORDER BY c.createdAt")
+      .query({
+        query: "SELECT * FROM c WHERE c.tenantId = @tid OR c.tenantId = 'shared' ORDER BY c.createdAt",
+        parameters: [{ name: "@tid", value: tenantId }]
+      })
       .fetchAll();
 
     if (resources.length === 0) {
       const seeded = [];
-      for (const name of DEFAULT_LISTS) {
-        const item = { id: crypto.randomUUID(), name, createdAt: new Date().toISOString() };
+      for (const name of SHARED_LISTS) {
+        const item = { id: crypto.randomUUID(), name, tenantId: "shared", createdAt: new Date().toISOString() };
+        await listsContainer.items.create(item);
+        seeded.push(item);
+      }
+      for (const name of PRIVATE_DEFAULTS) {
+        const item = { id: crypto.randomUUID(), name, tenantId, createdAt: new Date().toISOString() };
         await listsContainer.items.create(item);
         seeded.push(item);
       }
       return { jsonBody: seeded };
+    }
+
+    // If this tenant has no private lists yet, seed them
+    const hasPrivate = resources.some((r: { tenantId: string }) => r.tenantId === tenantId);
+    if (!hasPrivate) {
+      for (const name of PRIVATE_DEFAULTS) {
+        const item = { id: crypto.randomUUID(), name, tenantId, createdAt: new Date().toISOString() };
+        await listsContainer.items.create(item);
+        resources.push(item);
+      }
     }
 
     return { jsonBody: resources };
@@ -38,7 +57,7 @@ app.http("createList", {
       return { status: 400, jsonBody: { error: "Name is required (max 30 chars)" } };
     }
 
-    const item = { id: crypto.randomUUID(), name, createdAt: new Date().toISOString() };
+    const item = { id: crypto.randomUUID(), name, tenantId, createdAt: new Date().toISOString() };
     await listsContainer.items.create(item);
     return { status: 201, jsonBody: item };
   }
