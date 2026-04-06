@@ -120,6 +120,7 @@ input:focus, select:focus, textarea:focus {
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .add-form {
@@ -131,6 +132,8 @@ input:focus, select:focus, textarea:focus {
   max-width: 480px;
   margin: 0 auto;
   width: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
@@ -164,23 +167,28 @@ input:focus, select:focus, textarea:focus {
   font-weight: 600;
   color: #fff;
   background: var(--blue);
-  margin-top: auto;
-  margin-bottom: var(--safe-b);
+  width: 100%;
 }
 
 .submit-btn:disabled { opacity: .4; cursor: default; }
 .submit-btn:active:not(:disabled) { opacity: .85; }
 
-.toast {
-  position: fixed;
-  bottom: calc(24px + var(--safe-b));
-  left: 50%;
-  transform: translateX(-50%);
+.submit-area {
+  margin-top: auto;
+  padding-bottom: var(--safe-b);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.toast-inline {
   background: var(--green);
   color: #fff;
-  padding: 12px 24px;
+  padding: 10px 16px;
   border-radius: var(--radius);
   font-weight: 600;
+  text-align: center;
   animation: toast-in .3s ease;
 }
 

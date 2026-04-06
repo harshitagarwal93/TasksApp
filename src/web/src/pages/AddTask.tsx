@@ -1,23 +1,17 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TaskList } from '../types';
 import * as api from '../api';
 
-function useKeyboardOffset() {
-  const [offset, setOffset] = useState(0);
+function useVisualViewportHeight() {
+  const [height, setHeight] = useState<number | undefined>(undefined);
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    const update = () => {
-      setOffset(window.innerHeight - vv.height);
-    };
+    const update = () => setHeight(vv.height);
     vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
-    };
+    return () => vv.removeEventListener('resize', update);
   }, []);
-  return offset;
+  return height;
 }
 
 export default function AddTask({ onBack }: { onBack: () => void }) {
@@ -50,10 +44,18 @@ export default function AddTask({ onBack }: { onBack: () => void }) {
   };
 
   const canSubmit = text.trim().length > 0 && text.trim().length <= 100 && !!listId && !submitting;
-  const kbOffset = useKeyboardOffset();
+  const vvHeight = useVisualViewportHeight();
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  // When keyboard opens and toast shows, scroll button into view
+  useEffect(() => {
+    if (toast && btnRef.current) {
+      btnRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [toast]);
 
   return (
-    <div className="add-task">
+    <div className="add-task" style={vvHeight ? { height: vvHeight } : undefined}>
       <header className="header">
         <button className="back-btn" onClick={onBack} aria-label="Back">←</button>
         <h1>Add Task</h1>
@@ -78,16 +80,18 @@ export default function AddTask({ onBack }: { onBack: () => void }) {
             {lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         </div>
-        <button
-          className="submit-btn"
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          style={kbOffset > 0 ? { marginTop: 0, marginBottom: 0, position: 'fixed', bottom: kbOffset, left: 0, right: 0, borderRadius: 0, zIndex: 20 } : undefined}
-        >
-          {submitting ? 'Adding...' : 'Add Task'}
-        </button>
+        <div className="submit-area">
+          {toast && <div className="toast-inline">{toast}</div>}
+          <button
+            ref={btnRef}
+            className="submit-btn"
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+          >
+            {submitting ? 'Adding...' : 'Add Task'}
+          </button>
+        </div>
       </div>
-      {toast && <div className="toast" style={kbOffset > 0 ? { bottom: kbOffset + 60 } : undefined}>{toast}</div>}
     </div>
   );
 }
