@@ -31,7 +31,7 @@ export default function AddTask({ onBack }: { onBack: () => void }) {
 
   const handleSubmit = async () => {
     const trimmed = text.trim();
-    if (!trimmed || !listId || trimmed.length > 100) return;
+    if (!trimmed || !listId || trimmed.length > 500) return;
     setSubmitting(true);
     try {
       await api.createTask(listId, trimmed);
@@ -43,7 +43,7 @@ export default function AddTask({ onBack }: { onBack: () => void }) {
     }
   };
 
-  const canSubmit = text.trim().length > 0 && text.trim().length <= 100 && !!listId && !submitting;
+  const canSubmit = text.trim().length > 0 && text.trim().length <= 500 && !!listId && !submitting;
   const vvHeight = useVisualViewportHeight();
   const btnRef = useRef<HTMLButtonElement>(null);
 
@@ -68,11 +68,11 @@ export default function AddTask({ onBack }: { onBack: () => void }) {
             placeholder="Enter your task..."
             value={text}
             onChange={e => setText(e.target.value)}
-            maxLength={100}
+            maxLength={500}
             rows={2}
             autoFocus
           />
-          <span className={`char-count${text.length > 90 ? ' warn' : ''}`}>{text.length}/100</span>
+          <span className={`char-count${text.length > 450 ? ' warn' : ''}`}>{text.length}/500</span>
         </div>
         <div className="field">
           <label htmlFor="task-list">List</label>

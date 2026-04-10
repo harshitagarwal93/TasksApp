@@ -51,8 +51,8 @@ app.http("createTask", {
     const text = typeof body.text === "string" ? body.text.trim() : "";
     const listId = typeof body.listId === "string" ? body.listId.trim() : "";
 
-    if (!text || text.length > 100) {
-      return { status: 400, jsonBody: { error: "Text is required (max 100 chars)" } };
+    if (!text || text.length > 500) {
+      return { status: 400, jsonBody: { error: "Text is required (max 500 chars)" } };
     }
     if (!listId) {
       return { status: 400, jsonBody: { error: "listId is required" } };
@@ -80,10 +80,17 @@ app.http("updateTask", {
     const id = request.params.id;
     if (!id) return { status: 400, jsonBody: { error: "Missing id" } };
 
-    const body = await request.json() as { listId?: string; isCurrent?: boolean; isDone?: boolean };
+    const body = await request.json() as { listId?: string; text?: string; isCurrent?: boolean; isDone?: boolean };
     const listId = typeof body.listId === "string" ? body.listId.trim() : "";
     if (!listId) {
       return { status: 400, jsonBody: { error: "listId is required" } };
+    }
+
+    if (typeof body.text === "string") {
+      const trimmedText = body.text.trim();
+      if (!trimmedText || trimmedText.length > 500) {
+        return { status: 400, jsonBody: { error: "Text is required (max 500 chars)" } };
+      }
     }
 
     // Read the existing task
@@ -94,6 +101,7 @@ app.http("updateTask", {
 
     const updated = {
       ...existing,
+      ...(typeof body.text === "string" && { text: body.text.trim() }),
       ...(typeof body.isCurrent === "boolean" && { isCurrent: body.isCurrent }),
       ...(body.isDone === true && { isDone: true, isCurrent: false, completedAt: new Date().toISOString() }),
       ...(body.isDone === false && { isDone: false, completedAt: undefined })

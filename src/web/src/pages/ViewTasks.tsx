@@ -9,6 +9,8 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
   const [expandedDone, setExpandedDone] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [movingTask, setMovingTask] = useState<Task | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editText, setEditText] = useState('');
   const prevTasks = useRef<Task[]>([]);
 
   const load = useCallback(async () => {
@@ -70,6 +72,28 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
     prevTasks.current = tasks;
     setTasks(prev => prev.filter(t => t.id !== task.id));
     api.deleteTask(task.id, task.listId).catch(() => setTasks(prevTasks.current));
+  };
+
+  const handleStartEdit = (task: Task) => {
+    setEditingTask(task);
+    setEditText(task.text);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingTask) return;
+    const trimmed = editText.trim();
+    if (!trimmed || trimmed.length > 500 || trimmed === editingTask.text) {
+      setEditingTask(null);
+      return;
+    }
+    prevTasks.current = tasks;
+    setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, text: trimmed } : t));
+    setEditingTask(null);
+    try {
+      await api.updateTask(editingTask.id, editingTask.listId, { text: trimmed });
+    } catch {
+      setTasks(prevTasks.current);
+    }
   };
 
   const handleAddList = async () => {
@@ -149,6 +173,33 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
         </div>
       )}
 
+      {editingTask && (
+        <div className="move-overlay" onClick={() => setEditingTask(null)}>
+          <div className="edit-dialog" onClick={e => e.stopPropagation()}>
+            <h3>Edit Task</h3>
+            <textarea
+              className="edit-textarea"
+              value={editText}
+              onChange={e => setEditText(e.target.value)}
+              maxLength={500}
+              rows={3}
+              autoFocus
+            />
+            <span className={`char-count${editText.length > 450 ? ' warn' : ''}`}>{editText.length}/500</span>
+            <div className="edit-actions">
+              <button className="move-cancel" onClick={() => setEditingTask(null)}>Cancel</button>
+              <button
+                className="edit-save-btn"
+                onClick={handleSaveEdit}
+                disabled={!editText.trim() || editText.trim().length > 500 || editText.trim() === editingTask.text}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="lists-grid">
         {lists.map(list => {
           const active = tasks.filter(t => t.listId === list.id && !t.isDone);
@@ -170,6 +221,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
                 >
                   <span className="task-indicator">{task.isCurrent ? '●' : '○'}</span>
                   <span className="task-text">{task.text}</span>
+                  <button className="edit-btn" onClick={e => { e.stopPropagation(); handleStartEdit(task); }} aria-label="Edit task">✎</button>
                   <button className="move-btn" onClick={e => { e.stopPropagation(); setMovingTask(task); }} aria-label="Move task">⇄</button>
                   <button className="delete-task-btn" onClick={e => { e.stopPropagation(); handleDeleteTask(task); }} aria-label="Delete task">−</button>
                   {task.isCurrent && (
@@ -186,6 +238,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
                     <div key={task.id} className="task-row done">
                       <span className="task-indicator">✓</span>
                       <span className="task-text">{task.text}</span>
+                      <button className="edit-btn" onClick={() => handleStartEdit(task)} aria-label="Edit task">✎</button>
                       <button className="move-btn" onClick={() => setMovingTask(task)} aria-label="Move task">⇄</button>
                       <button className="delete-task-btn" onClick={() => handleDeleteTask(task)} aria-label="Delete task">−</button>
                       <button className="reopen-btn" onClick={() => handleReopen(task)}>↩</button>

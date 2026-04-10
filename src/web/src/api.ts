@@ -40,7 +40,7 @@ export async function createTask(listId: string, text: string): Promise<Task> {
   return res.json();
 }
 
-export async function updateTask(id: string, listId: string, updates: Partial<Pick<Task, 'isCurrent' | 'isDone'>>): Promise<Task> {
+export async function updateTask(id: string, listId: string, updates: Partial<Pick<Task, 'isCurrent' | 'isDone' | 'text'>>): Promise<Task> {
   const res = await fetch(`${BASE}/tasks/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
