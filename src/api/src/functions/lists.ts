@@ -1,5 +1,5 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { listsContainer, tasksContainer, tenantId } from "../db";
+import { listsContainer, tasksContainer, tenantId, LIST_FIELDS } from "../db";
 import * as crypto from "crypto";
 
 const SHARED_LISTS = ["Home"];
@@ -12,37 +12,41 @@ app.http("getLists", {
   handler: async (_request: HttpRequest, _context: InvocationContext): Promise<HttpResponseInit> => {
     const { resources } = await listsContainer.items
       .query({
-        query: "SELECT * FROM c WHERE c.tenantId = @tid OR c.tenantId = 'shared' ORDER BY c.createdAt",
+        query: `SELECT ${LIST_FIELDS} FROM c WHERE c.tenantId = @tid OR c.tenantId = 'shared' ORDER BY c.createdAt`,
         parameters: [{ name: "@tid", value: tenantId }]
       })
       .fetchAll();
 
     if (resources.length === 0) {
-      const seeded = [];
-      for (const name of SHARED_LISTS) {
-        const item = { id: crypto.randomUUID(), name, tenantId: "shared", createdAt: new Date().toISOString() };
-        await listsContainer.items.create(item);
-        seeded.push(item);
-      }
-      for (const name of PRIVATE_DEFAULTS) {
-        const item = { id: crypto.randomUUID(), name, tenantId, createdAt: new Date().toISOString() };
-        await listsContainer.items.create(item);
-        seeded.push(item);
-      }
-      return { jsonBody: seeded };
+      const seeded: unknown[] = [];
+      const sharedDocs = SHARED_LISTS.map(name => ({
+        id: crypto.randomUUID(), name, tenantId: "shared", createdAt: new Date().toISOString()
+      }));
+      const privateDocs = PRIVATE_DEFAULTS.map(name => ({
+        id: crypto.randomUUID(), name, tenantId, createdAt: new Date().toISOString()
+      }));
+      await Promise.all([...sharedDocs, ...privateDocs].map(d => listsContainer.items.create(d)));
+      seeded.push(...sharedDocs, ...privateDocs);
+      return {
+        headers: { "Cache-Control": "private, max-age=10" },
+        jsonBody: seeded
+      };
     }
 
-    // If this tenant has no private lists yet, seed them
+    // If this tenant has no private lists yet, seed them (parallel)
     const hasPrivate = resources.some((r: { tenantId: string }) => r.tenantId === tenantId);
     if (!hasPrivate) {
-      for (const name of PRIVATE_DEFAULTS) {
-        const item = { id: crypto.randomUUID(), name, tenantId, createdAt: new Date().toISOString() };
-        await listsContainer.items.create(item);
-        resources.push(item);
-      }
+      const privateDocs = PRIVATE_DEFAULTS.map(name => ({
+        id: crypto.randomUUID(), name, tenantId, createdAt: new Date().toISOString()
+      }));
+      await Promise.all(privateDocs.map(d => listsContainer.items.create(d)));
+      resources.push(...privateDocs);
     }
 
-    return { jsonBody: resources };
+    return {
+      headers: { "Cache-Control": "private, max-age=10" },
+      jsonBody: resources
+    };
   }
 });
 
@@ -71,13 +75,11 @@ app.http("deleteList", {
     const id = request.params.id;
     if (!id) return { status: 400, jsonBody: { error: "Missing id" } };
 
-    // Delete all tasks in the list
+    // Delete all tasks in the list (parallel; all share partition key = listId)
     const { resources: tasks } = await tasksContainer.items
       .query({ query: "SELECT c.id FROM c WHERE c.listId = @listId", parameters: [{ name: "@listId", value: id }] })
       .fetchAll();
-    for (const task of tasks) {
-      await tasksContainer.item(task.id, id).delete();
-    }
+    await Promise.all(tasks.map((task: { id: string }) => tasksContainer.item(task.id, id).delete()));
 
     await listsContainer.item(id, id).delete();
     return { status: 204 };

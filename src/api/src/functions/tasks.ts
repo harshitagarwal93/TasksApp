@@ -1,5 +1,5 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { tasksContainer, listsContainer, tenantId } from "../db";
+import { tasksContainer, listsContainer, tenantId, TASK_FIELDS } from "../db";
 import * as crypto from "crypto";
 
 // Helper: get list IDs visible to this tenant
@@ -24,13 +24,13 @@ app.http("getTasks", {
     let parameters: { name: string; value: string }[] = [];
 
     if (listId) {
-      query = "SELECT * FROM c WHERE c.listId = @listId";
+      query = `SELECT ${TASK_FIELDS} FROM c WHERE c.listId = @listId`;
       parameters = [{ name: "@listId", value: listId }];
     } else {
       // Only return tasks for lists this tenant can see
       const visibleIds = await getVisibleListIds();
       if (visibleIds.length === 0) return { jsonBody: [] };
-      query = `SELECT * FROM c WHERE ARRAY_CONTAINS(@ids, c.listId)`;
+      query = `SELECT ${TASK_FIELDS} FROM c WHERE ARRAY_CONTAINS(@ids, c.listId)`;
       parameters = [{ name: "@ids", value: visibleIds as unknown as string }];
     }
 
@@ -176,17 +176,23 @@ app.http("reorderTasks", {
     if (taskIds.length === 0) return { status: 400, jsonBody: { error: "taskIds is required" } };
 
     const step = 1000;
-    const updated: unknown[] = [];
-    for (let i = 0; i < taskIds.length; i++) {
-      const id = taskIds[i];
+    // Cosmos transactional batch limit is 100 ops; chunk if more.
+    const CHUNK = 100;
+    const updated: { id: string; sortOrder: number }[] = [];
+    for (let start = 0; start < taskIds.length; start += CHUNK) {
+      const slice = taskIds.slice(start, start + CHUNK);
+      const ops = slice.map((id, j) => ({
+        operationType: "Patch" as const,
+        id,
+        resourceBody: {
+          operations: [{ op: "set" as const, path: "/sortOrder", value: (start + j + 1) * step }]
+        }
+      }));
       try {
-        const { resource: existing } = await tasksContainer.item(id, listId).read();
-        if (!existing) continue;
-        const next = { ...existing, sortOrder: (i + 1) * step };
-        const { resource } = await tasksContainer.item(id, listId).replace(next);
-        updated.push(resource);
+        await tasksContainer.items.batch(ops, listId);
+        slice.forEach((id, j) => updated.push({ id, sortOrder: (start + j + 1) * step }));
       } catch {
-        // skip missing/failed tasks
+        // best-effort; skip failed batch
       }
     }
 
