@@ -25,11 +25,7 @@ async function getVisibleListsContext(): Promise<{ ids: string[]; map: Map<strin
   return { ids, map };
 }
 
-// Helper: get list IDs visible to this tenant (kept for compatibility)
-async function getVisibleListIds(): Promise<string[]> {
-  return (await getVisibleListsContext()).ids;
-}
-
+// Helper: get tenantId for a list (for createTask/moveTask).
 async function getListTenantId(listId: string): Promise<string | null> {
   const { map } = await getVisibleListsContext();
   return map.get(listId) ?? null;
@@ -54,11 +50,9 @@ app.http("getTasks", {
       query = `SELECT ${TASK_FIELDS} FROM c WHERE c.listId = @listId AND ${NOT_ARCHIVED}`;
       parameters = [{ name: "@listId", value: listId }];
     } else {
-      // Only return tasks for lists this tenant can see
-      const visibleIds = await getVisibleListIds();
-      if (visibleIds.length === 0) return { jsonBody: [] };
-      query = `SELECT ${TASK_FIELDS} FROM c WHERE ARRAY_CONTAINS(@ids, c.listId) AND ${NOT_ARCHIVED}`;
-      parameters = [{ name: "@ids", value: visibleIds as unknown as string }];
+      // R1 phase 2: filter directly on denormalized tenantId. No pre-query for visible list IDs.
+      query = `SELECT ${TASK_FIELDS} FROM c WHERE (c.tenantId = @tid OR c.tenantId = 'shared') AND ${NOT_ARCHIVED}`;
+      parameters = [{ name: "@tid", value: tenantId }];
     }
 
     const { resources } = await tasksContainer.items
