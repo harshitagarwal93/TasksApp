@@ -12,4 +12,5 @@ export interface Task {
   isDone: boolean;
   createdAt: string;
   completedAt?: string;
+  sortOrder?: number;
 }

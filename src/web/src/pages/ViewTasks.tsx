@@ -12,6 +12,8 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editText, setEditText] = useState('');
   const prevTasks = useRef<Task[]>([]);
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -117,6 +119,64 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
     });
   };
 
+  const sortActive = (a: Task, b: Task) => {
+    const ao = a.sortOrder ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.sortOrder ?? Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return a.createdAt.localeCompare(b.createdAt);
+  };
+
+  const handleDragStart = (e: React.DragEvent, task: Task) => {
+    setDragTaskId(task.id);
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', task.id); } catch { /* noop */ }
+  };
+
+  const handleDragOver = (e: React.DragEvent, task: Task) => {
+    if (!dragTaskId || dragTaskId === task.id) return;
+    const dragged = tasks.find(t => t.id === dragTaskId);
+    if (!dragged || dragged.listId !== task.listId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverTaskId !== task.id) setDragOverTaskId(task.id);
+  };
+
+  const handleDragEnd = () => {
+    setDragTaskId(null);
+    setDragOverTaskId(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, target: Task) => {
+    e.preventDefault();
+    const sourceId = dragTaskId;
+    setDragTaskId(null);
+    setDragOverTaskId(null);
+    if (!sourceId || sourceId === target.id) return;
+    const source = tasks.find(t => t.id === sourceId);
+    if (!source || source.listId !== target.listId) return;
+
+    const listId = target.listId;
+    const activeInList = tasks
+      .filter(t => t.listId === listId && !t.isDone)
+      .sort(sortActive);
+    const without = activeInList.filter(t => t.id !== sourceId);
+    const targetIndex = without.findIndex(t => t.id === target.id);
+    if (targetIndex < 0) return;
+    without.splice(targetIndex, 0, source);
+
+    const reorderedIds = without.map(t => t.id);
+    const orderMap = new Map(reorderedIds.map((id, i) => [id, (i + 1) * 1000]));
+
+    prevTasks.current = tasks;
+    setTasks(prev => prev.map(t => orderMap.has(t.id) ? { ...t, sortOrder: orderMap.get(t.id) } : t));
+
+    try {
+      await api.reorderTasks(listId, reorderedIds);
+    } catch {
+      setTasks(prevTasks.current);
+    }
+  };
+
   if (loading) return <div className="loading">Loading...</div>;
 
   return (
@@ -202,7 +262,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
 
       <div className="lists-grid">
         {lists.map(list => {
-          const active = tasks.filter(t => t.listId === list.id && !t.isDone);
+          const active = tasks.filter(t => t.listId === list.id && !t.isDone).sort(sortActive);
           const done = tasks.filter(t => t.listId === list.id && t.isDone);
           const isDoneExpanded = expandedDone.has(list.id);
 
@@ -216,9 +276,16 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
               {active.map(task => (
                 <div
                   key={task.id}
-                  className={`task-row${task.isCurrent ? ' current' : ''}`}
+                  className={`task-row${task.isCurrent ? ' current' : ''}${dragTaskId === task.id ? ' dragging' : ''}${dragOverTaskId === task.id ? ' drag-over' : ''}`}
+                  draggable
+                  onDragStart={e => handleDragStart(e, task)}
+                  onDragOver={e => handleDragOver(e, task)}
+                  onDragLeave={() => { if (dragOverTaskId === task.id) setDragOverTaskId(null); }}
+                  onDrop={e => handleDrop(e, task)}
+                  onDragEnd={handleDragEnd}
                   onClick={() => handleToggleCurrent(task)}
                 >
+                  <span className="drag-handle" aria-hidden="true">⋮⋮</span>
                   <span className="task-indicator">{task.isCurrent ? '●' : '○'}</span>
                   <span className="task-text">{task.text}</span>
                   <button className="edit-btn" onClick={e => { e.stopPropagation(); handleStartEdit(task); }} aria-label="Edit task">✎</button>

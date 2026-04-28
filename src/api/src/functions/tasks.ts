@@ -24,13 +24,13 @@ app.http("getTasks", {
     let parameters: { name: string; value: string }[] = [];
 
     if (listId) {
-      query = "SELECT * FROM c WHERE c.listId = @listId ORDER BY c.createdAt ASC";
+      query = "SELECT * FROM c WHERE c.listId = @listId ORDER BY c.sortOrder ASC, c.createdAt ASC";
       parameters = [{ name: "@listId", value: listId }];
     } else {
       // Only return tasks for lists this tenant can see
       const visibleIds = await getVisibleListIds();
       if (visibleIds.length === 0) return { jsonBody: [] };
-      query = `SELECT * FROM c WHERE ARRAY_CONTAINS(@ids, c.listId) ORDER BY c.createdAt ASC`;
+      query = `SELECT * FROM c WHERE ARRAY_CONTAINS(@ids, c.listId) ORDER BY c.sortOrder ASC, c.createdAt ASC`;
       parameters = [{ name: "@ids", value: visibleIds as unknown as string }];
     }
 
@@ -64,7 +64,8 @@ app.http("createTask", {
       text,
       isCurrent: false,
       isDone: false,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      sortOrder: Date.now()
     };
 
     await tasksContainer.items.create(item);
@@ -160,5 +161,35 @@ app.http("deleteTask", {
 
     await tasksContainer.item(id, listId).delete();
     return { status: 204 };
+  }
+});
+
+app.http("reorderTasks", {
+  methods: ["POST"],
+  authLevel: "anonymous",
+  route: "tasks/reorder",
+  handler: async (request: HttpRequest, _context: InvocationContext): Promise<HttpResponseInit> => {
+    const body = await request.json() as { listId?: string; taskIds?: string[] };
+    const listId = typeof body.listId === "string" ? body.listId.trim() : "";
+    const taskIds = Array.isArray(body.taskIds) ? body.taskIds.filter(id => typeof id === "string") : [];
+    if (!listId) return { status: 400, jsonBody: { error: "listId is required" } };
+    if (taskIds.length === 0) return { status: 400, jsonBody: { error: "taskIds is required" } };
+
+    const step = 1000;
+    const updated: unknown[] = [];
+    for (let i = 0; i < taskIds.length; i++) {
+      const id = taskIds[i];
+      try {
+        const { resource: existing } = await tasksContainer.item(id, listId).read();
+        if (!existing) continue;
+        const next = { ...existing, sortOrder: (i + 1) * step };
+        const { resource } = await tasksContainer.item(id, listId).replace(next);
+        updated.push(resource);
+      } catch {
+        // skip missing/failed tasks
+      }
+    }
+
+    return { jsonBody: updated };
   }
 });

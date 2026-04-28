@@ -66,3 +66,13 @@ export async function deleteTask(id: string, listId: string): Promise<void> {
   });
   if (!res.ok) throw new Error('Failed to delete task');
 }
+
+export async function reorderTasks(listId: string, taskIds: string[]): Promise<Task[]> {
+  const res = await fetch(`${BASE}/tasks/reorder`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ listId, taskIds })
+  });
+  if (!res.ok) throw new Error('Failed to reorder tasks');
+  return res.json();
+}
