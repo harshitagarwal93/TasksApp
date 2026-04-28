@@ -1,17 +1,41 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
+import { PatchOperation } from "@azure/cosmos";
 import { tasksContainer, listsContainer, tenantId, TASK_FIELDS } from "../db";
 import * as crypto from "crypto";
 
-// Helper: get list IDs visible to this tenant
-async function getVisibleListIds(): Promise<string[]> {
+// In-memory cache of visible list IDs and tenantId map per Function instance (TTL 30s).
+// Removed in R1-phase2 once tenantId is denormalized on every task.
+let visibleIdsCache: { ids: string[]; map: Map<string, string>; ts: number } | null = null;
+const CACHE_TTL_MS = 30_000;
+
+async function getVisibleListsContext(): Promise<{ ids: string[]; map: Map<string, string> }> {
+  const now = Date.now();
+  if (visibleIdsCache && now - visibleIdsCache.ts < CACHE_TTL_MS) {
+    return { ids: visibleIdsCache.ids, map: visibleIdsCache.map };
+  }
   const { resources } = await listsContainer.items
     .query({
-      query: "SELECT c.id FROM c WHERE c.tenantId = @tid OR c.tenantId = 'shared'",
+      query: "SELECT c.id, c.tenantId FROM c WHERE c.tenantId = @tid OR c.tenantId = 'shared'",
       parameters: [{ name: "@tid", value: tenantId }]
     })
     .fetchAll();
-  return resources.map((r: { id: string }) => r.id);
+  const ids = resources.map((r: { id: string }) => r.id);
+  const map = new Map<string, string>(resources.map((r: { id: string; tenantId: string }) => [r.id, r.tenantId]));
+  visibleIdsCache = { ids, map, ts: now };
+  return { ids, map };
 }
+
+// Helper: get list IDs visible to this tenant (kept for compatibility)
+async function getVisibleListIds(): Promise<string[]> {
+  return (await getVisibleListsContext()).ids;
+}
+
+async function getListTenantId(listId: string): Promise<string | null> {
+  const { map } = await getVisibleListsContext();
+  return map.get(listId) ?? null;
+}
+
+function invalidateListsCache() { visibleIdsCache = null; }
 
 // Exclude archived tasks. Cosmos: undefined isArchived is treated as not-archived.
 const NOT_ARCHIVED = "(NOT IS_DEFINED(c.isArchived) OR c.isArchived = false)";
@@ -94,9 +118,13 @@ app.http("createTask", {
       return { status: 400, jsonBody: { error: "listId is required" } };
     }
 
+    const listTenantId = await getListTenantId(listId);
+    if (!listTenantId) return { status: 404, jsonBody: { error: "List not found" } };
+
     const item = {
       id: crypto.randomUUID(),
       listId,
+      tenantId: listTenantId,
       text,
       isCurrent: false,
       isDone: false,
@@ -130,21 +158,37 @@ app.http("updateTask", {
       }
     }
 
-    // Read the existing task
-    const { resource: existing } = await tasksContainer.item(id, listId).read();
-    if (!existing) {
-      return { status: 404, jsonBody: { error: "Task not found" } };
+    // R6: build patch operations instead of read+replace.
+    const ops: PatchOperation[] = [];
+    if (typeof body.text === "string") ops.push({ op: "set", path: "/text", value: body.text.trim() });
+    if (typeof body.isCurrent === "boolean") ops.push({ op: "set", path: "/isCurrent", value: body.isCurrent });
+    if (body.isDone === true) {
+      ops.push({ op: "set", path: "/isDone", value: true });
+      ops.push({ op: "set", path: "/isCurrent", value: false });
+      ops.push({ op: "set", path: "/completedAt", value: new Date().toISOString() });
+    } else if (body.isDone === false) {
+      ops.push({ op: "set", path: "/isDone", value: false });
+      ops.push({ op: "set", path: "/completedAt", value: null });
+      ops.push({ op: "set", path: "/isArchived", value: false });
     }
 
-    const updated = {
-      ...existing,
-      ...(typeof body.text === "string" && { text: body.text.trim() }),
-      ...(typeof body.isCurrent === "boolean" && { isCurrent: body.isCurrent }),
-      ...(body.isDone === true && { isDone: true, isCurrent: false, completedAt: new Date().toISOString() }),
-      ...(body.isDone === false && { isDone: false, completedAt: undefined, isArchived: false })
-    };
+    if (ops.length === 0) {
+      const { resource: existing } = await tasksContainer.item(id, listId).read();
+      if (!existing) return { status: 404, jsonBody: { error: "Task not found" } };
+      return { jsonBody: existing };
+    }
 
-    const { resource } = await tasksContainer.item(id, listId).replace(updated);
+    let resource;
+    try {
+      const result = await tasksContainer.item(id, listId).patch(ops);
+      resource = result.resource;
+    } catch (err: unknown) {
+      const e = err as { code?: number; statusCode?: number };
+      if (e.code === 404 || e.statusCode === 404) {
+        return { status: 404, jsonBody: { error: "Task not found" } };
+      }
+      throw err;
+    }
 
     // Cap visible done tasks at 100 per list; auto-archive the oldest beyond.
     if (body.isDone === true) {
@@ -156,14 +200,14 @@ app.http("updateTask", {
           })
           .fetchAll();
         if (overflow.length > 0) {
-          const ops = overflow.map((o: { id: string }) => ({
+          const batchOps = overflow.map((o: { id: string }) => ({
             operationType: "Patch" as const,
             id: o.id,
             resourceBody: {
               operations: [{ op: "set" as const, path: "/isArchived", value: true }]
             }
           }));
-          await tasksContainer.items.batch(ops, listId);
+          await tasksContainer.items.batch(batchOps, listId);
         }
       } catch { /* archival is best-effort */ }
     }
@@ -192,16 +236,32 @@ app.http("moveTask", {
       return { status: 404, jsonBody: { error: "Task not found" } };
     }
 
-    // Delete from old partition, create in new one
-    const moved = { ...existing, listId: toListId };
+    const targetTenantId = await getListTenantId(toListId);
+    if (!targetTenantId) return { status: 404, jsonBody: { error: "Target list not found" } };
+
+    // R5: idempotent move. If create 409s, the target copy already exists from a previous attempt;
+    // proceed to delete the source so we converge to a single copy.
+    const moved = { ...existing, listId: toListId, tenantId: targetTenantId };
     delete moved._rid;
     delete moved._self;
     delete moved._etag;
     delete moved._attachments;
     delete moved._ts;
 
-    await tasksContainer.items.create(moved);
-    await tasksContainer.item(id, fromListId).delete();
+    try {
+      await tasksContainer.items.create(moved);
+    } catch (err: unknown) {
+      const e = err as { code?: number; statusCode?: number };
+      if (e.code !== 409 && e.statusCode !== 409) throw err;
+      // 409 = target already created on a previous retry; safe to continue.
+    }
+    try {
+      await tasksContainer.item(id, fromListId).delete();
+    } catch (err: unknown) {
+      const e = err as { code?: number; statusCode?: number };
+      if (e.code !== 404 && e.statusCode !== 404) throw err;
+      // 404 = source already deleted on a previous retry; safe to ignore.
+    }
 
     return { jsonBody: moved };
   }
@@ -258,3 +318,57 @@ app.http("reorderTasks", {
     return { jsonBody: updated };
   }
 });
+
+// One-time backfill: stamp tenantId on every task that lacks it, by joining to its list.
+// Protected by ADMIN_KEY. Safe to call multiple times (idempotent: skips tasks that already have tenantId).
+app.http("backfillTaskTenants", {
+  methods: ["POST"],
+  authLevel: "anonymous",
+  route: "admin/backfill-task-tenants",
+  handler: async (request: HttpRequest, _context: InvocationContext): Promise<HttpResponseInit> => {
+    const adminKey = process.env.ADMIN_KEY;
+    if (!adminKey) return { status: 503, jsonBody: { error: "ADMIN_KEY not configured" } };
+    if (request.headers.get("x-admin-key") !== adminKey) return { status: 401, jsonBody: { error: "Unauthorized" } };
+
+    // Build listId -> tenantId map from ALL lists (not tenant-filtered).
+    const { resources: allLists } = await listsContainer.items
+      .query("SELECT c.id, c.tenantId FROM c").fetchAll();
+    const listMap = new Map<string, string>(allLists.map((l: { id: string; tenantId: string }) => [l.id, l.tenantId]));
+
+    // Find tasks missing tenantId.
+    const { resources: legacy } = await tasksContainer.items
+      .query("SELECT c.id, c.listId FROM c WHERE NOT IS_DEFINED(c.tenantId)").fetchAll();
+
+    // Group by partition key (listId) for batched patches.
+    const byList = new Map<string, { id: string }[]>();
+    let skippedNoList = 0;
+    for (const t of legacy as { id: string; listId: string }[]) {
+      if (!listMap.has(t.listId)) { skippedNoList++; continue; }
+      if (!byList.has(t.listId)) byList.set(t.listId, []);
+      byList.get(t.listId)!.push({ id: t.id });
+    }
+
+    let patched = 0;
+    for (const [lid, items] of byList) {
+      const tid = listMap.get(lid)!;
+      for (let s = 0; s < items.length; s += 100) {
+        const slice = items.slice(s, s + 100);
+        const ops = slice.map(it => ({
+          operationType: "Patch" as const,
+          id: it.id,
+          resourceBody: {
+            operations: [{ op: "set" as const, path: "/tenantId", value: tid }]
+          }
+        }));
+        try {
+          await tasksContainer.items.batch(ops, lid);
+          patched += slice.length;
+        } catch { /* best-effort */ }
+      }
+    }
+
+    return { jsonBody: { totalLegacy: legacy.length, patched, skippedNoList } };
+  }
+});
+
+export { invalidateListsCache };

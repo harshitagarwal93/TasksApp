@@ -1,5 +1,6 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { listsContainer, tasksContainer, tenantId, LIST_FIELDS } from "../db";
+import { invalidateListsCache } from "./tasks";
 import * as crypto from "crypto";
 
 const SHARED_LISTS = ["Home"];
@@ -27,6 +28,7 @@ app.http("getLists", {
       }));
       await Promise.all([...sharedDocs, ...privateDocs].map(d => listsContainer.items.create(d)));
       seeded.push(...sharedDocs, ...privateDocs);
+      invalidateListsCache();
       return {
         headers: { "Cache-Control": "private, max-age=10" },
         jsonBody: seeded
@@ -41,6 +43,7 @@ app.http("getLists", {
       }));
       await Promise.all(privateDocs.map(d => listsContainer.items.create(d)));
       resources.push(...privateDocs);
+      invalidateListsCache();
     }
 
     return {
@@ -63,6 +66,7 @@ app.http("createList", {
 
     const item = { id: crypto.randomUUID(), name, tenantId, createdAt: new Date().toISOString() };
     await listsContainer.items.create(item);
+    invalidateListsCache();
     return { status: 201, jsonBody: item };
   }
 });
@@ -82,6 +86,7 @@ app.http("deleteList", {
     await Promise.all(tasks.map((task: { id: string }) => tasksContainer.item(task.id, id).delete()));
 
     await listsContainer.item(id, id).delete();
+    invalidateListsCache();
     return { status: 204 };
   }
 });
