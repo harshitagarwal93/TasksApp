@@ -14,6 +14,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
   const prevTasks = useRef<Task[]>([]);
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+  const [draggableTaskId, setDraggableTaskId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -144,6 +145,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
   const handleDragEnd = () => {
     setDragTaskId(null);
     setDragOverTaskId(null);
+    setDraggableTaskId(null);
   };
 
   const handleDrop = async (e: React.DragEvent, target: Task) => {
@@ -277,7 +279,7 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
                 <div
                   key={task.id}
                   className={`task-row${task.isCurrent ? ' current' : ''}${dragTaskId === task.id ? ' dragging' : ''}${dragOverTaskId === task.id ? ' drag-over' : ''}`}
-                  draggable
+                  draggable={draggableTaskId === task.id}
                   onDragStart={e => handleDragStart(e, task)}
                   onDragOver={e => handleDragOver(e, task)}
                   onDragLeave={() => { if (dragOverTaskId === task.id) setDragOverTaskId(null); }}
@@ -285,7 +287,16 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
                   onDragEnd={handleDragEnd}
                   onClick={() => handleToggleCurrent(task)}
                 >
-                  <span className="drag-handle" aria-hidden="true">⋮⋮</span>
+                  <span
+                    className="drag-handle"
+                    aria-label="Drag to reorder"
+                    title="Drag to reorder"
+                    onMouseDown={() => setDraggableTaskId(task.id)}
+                    onMouseUp={() => setDraggableTaskId(null)}
+                    onTouchStart={() => setDraggableTaskId(task.id)}
+                    onTouchEnd={() => setDraggableTaskId(null)}
+                    onClick={e => e.stopPropagation()}
+                  >☰</span>
                   <span className="task-indicator">{task.isCurrent ? '●' : '○'}</span>
                   <span className="task-text">{task.text}</span>
                   <button className="edit-btn" onClick={e => { e.stopPropagation(); handleStartEdit(task); }} aria-label="Edit task">✎</button>

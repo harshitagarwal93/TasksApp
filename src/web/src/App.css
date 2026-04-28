@@ -353,19 +353,22 @@ input:focus, select:focus, textarea:focus {
 .drag-handle {
   flex-shrink: 0;
   color: var(--muted);
-  font-size: 0.875rem;
-  letter-spacing: -2px;
+  font-size: 1.125rem;
+  line-height: 1;
   cursor: grab;
   user-select: none;
-  padding: 0 2px;
-  opacity: 0.5;
-  transition: opacity .15s;
+  -webkit-user-select: none;
+  padding: 6px 4px;
+  margin: -6px 0;
+  opacity: 0.7;
+  transition: opacity .15s, color .15s;
+  touch-action: none;
 }
 
-.task-row:hover .drag-handle { opacity: 1; }
+.drag-handle:hover { opacity: 1; color: var(--blue); }
+.drag-handle:active { cursor: grabbing; }
 .task-row.dragging { opacity: 0.4; }
 .task-row.drag-over { border-top: 2px solid var(--blue); }
-.task-row[draggable="true"]:active .drag-handle { cursor: grabbing; }
 
 .task-indicator {
   flex-shrink: 0;
