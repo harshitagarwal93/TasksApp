@@ -23,10 +23,28 @@ export async function deleteList(id: string): Promise<void> {
   if (!res.ok) throw new Error('Failed to delete list');
 }
 
+// In-memory ETag cache for /api/tasks (revalidates with If-None-Match -> 304).
+let tasksEtag: string | null = null;
+let tasksCache: Task[] = [];
+
 export async function getTasks(listId?: string): Promise<Task[]> {
   const url = listId ? `${BASE}/tasks?listId=${encodeURIComponent(listId)}` : `${BASE}/tasks`;
-  const res = await fetch(url);
+  const headers: Record<string, string> = {};
+  if (!listId && tasksEtag) headers['If-None-Match'] = tasksEtag;
+  const res = await fetch(url, { headers });
+  if (res.status === 304) return tasksCache;
   if (!res.ok) throw new Error('Failed to fetch tasks');
+  const data = await res.json();
+  if (!listId) {
+    tasksEtag = res.headers.get('etag');
+    tasksCache = data;
+  }
+  return data;
+}
+
+export async function getArchivedTasks(listId: string): Promise<Task[]> {
+  const res = await fetch(`${BASE}/tasks/archived?listId=${encodeURIComponent(listId)}`);
+  if (!res.ok) throw new Error('Failed to fetch archived tasks');
   return res.json();
 }
 

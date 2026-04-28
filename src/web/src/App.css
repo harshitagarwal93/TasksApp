@@ -392,6 +392,8 @@ input:focus, select:focus, textarea:focus {
 }
 
 .done-section { border-top: 1px solid var(--border); }
+.archive-section { border-top: 1px solid var(--border); }
+.task-row.done.archived { opacity: .45; }
 
 .done-toggle {
   width: 100%;

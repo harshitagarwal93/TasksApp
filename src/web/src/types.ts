@@ -13,4 +13,5 @@ export interface Task {
   createdAt: string;
   completedAt?: string;
   sortOrder?: number;
+  isArchived?: boolean;
 }

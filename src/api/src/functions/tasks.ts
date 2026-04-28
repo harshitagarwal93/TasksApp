@@ -13,6 +13,9 @@ async function getVisibleListIds(): Promise<string[]> {
   return resources.map((r: { id: string }) => r.id);
 }
 
+// Exclude archived tasks. Cosmos: undefined isArchived is treated as not-archived.
+const NOT_ARCHIVED = "(NOT IS_DEFINED(c.isArchived) OR c.isArchived = false)";
+
 app.http("getTasks", {
   methods: ["GET"],
   authLevel: "anonymous",
@@ -24,18 +27,51 @@ app.http("getTasks", {
     let parameters: { name: string; value: string }[] = [];
 
     if (listId) {
-      query = `SELECT ${TASK_FIELDS} FROM c WHERE c.listId = @listId`;
+      query = `SELECT ${TASK_FIELDS} FROM c WHERE c.listId = @listId AND ${NOT_ARCHIVED}`;
       parameters = [{ name: "@listId", value: listId }];
     } else {
       // Only return tasks for lists this tenant can see
       const visibleIds = await getVisibleListIds();
       if (visibleIds.length === 0) return { jsonBody: [] };
-      query = `SELECT ${TASK_FIELDS} FROM c WHERE ARRAY_CONTAINS(@ids, c.listId)`;
+      query = `SELECT ${TASK_FIELDS} FROM c WHERE ARRAY_CONTAINS(@ids, c.listId) AND ${NOT_ARCHIVED}`;
       parameters = [{ name: "@ids", value: visibleIds as unknown as string }];
     }
 
     const { resources } = await tasksContainer.items
       .query({ query, parameters })
+      .fetchAll();
+
+    const body = JSON.stringify(resources);
+    const etag = '"' + crypto.createHash("sha1").update(body).digest("base64").slice(0, 22) + '"';
+    const ifNoneMatch = request.headers.get("if-none-match");
+    if (ifNoneMatch && ifNoneMatch === etag) {
+      return { status: 304, headers: { ETag: etag, "Cache-Control": "private, max-age=0, must-revalidate" } };
+    }
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        ETag: etag,
+        "Cache-Control": "private, max-age=0, must-revalidate"
+      },
+      body
+    };
+  }
+});
+
+app.http("getArchivedTasks", {
+  methods: ["GET"],
+  authLevel: "anonymous",
+  route: "tasks/archived",
+  handler: async (request: HttpRequest, _context: InvocationContext): Promise<HttpResponseInit> => {
+    const listId = request.query.get("listId");
+    if (!listId) return { status: 400, jsonBody: { error: "listId query param is required" } };
+
+    const { resources } = await tasksContainer.items
+      .query({
+        query: `SELECT ${TASK_FIELDS} FROM c WHERE c.listId = @listId AND c.isArchived = true ORDER BY c.completedAt DESC`,
+        parameters: [{ name: "@listId", value: listId }]
+      })
       .fetchAll();
 
     return { jsonBody: resources };
@@ -105,10 +141,33 @@ app.http("updateTask", {
       ...(typeof body.text === "string" && { text: body.text.trim() }),
       ...(typeof body.isCurrent === "boolean" && { isCurrent: body.isCurrent }),
       ...(body.isDone === true && { isDone: true, isCurrent: false, completedAt: new Date().toISOString() }),
-      ...(body.isDone === false && { isDone: false, completedAt: undefined })
+      ...(body.isDone === false && { isDone: false, completedAt: undefined, isArchived: false })
     };
 
     const { resource } = await tasksContainer.item(id, listId).replace(updated);
+
+    // Cap visible done tasks at 100 per list; auto-archive the oldest beyond.
+    if (body.isDone === true) {
+      try {
+        const { resources: overflow } = await tasksContainer.items
+          .query({
+            query: `SELECT c.id FROM c WHERE c.listId = @listId AND c.isDone = true AND ${NOT_ARCHIVED} ORDER BY c.completedAt ASC OFFSET 100 LIMIT 50`,
+            parameters: [{ name: "@listId", value: listId }]
+          })
+          .fetchAll();
+        if (overflow.length > 0) {
+          const ops = overflow.map((o: { id: string }) => ({
+            operationType: "Patch" as const,
+            id: o.id,
+            resourceBody: {
+              operations: [{ op: "set" as const, path: "/isArchived", value: true }]
+            }
+          }));
+          await tasksContainer.items.batch(ops, listId);
+        }
+      } catch { /* archival is best-effort */ }
+    }
+
     return { jsonBody: resource };
   }
 });

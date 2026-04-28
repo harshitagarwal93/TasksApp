@@ -15,6 +15,9 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
   const [draggableTaskId, setDraggableTaskId] = useState<string | null>(null);
+  const [expandedArchive, setExpandedArchive] = useState<Set<string>>(new Set());
+  const [archivedByList, setArchivedByList] = useState<Record<string, Task[]>>({});
+  const [loadingArchive, setLoadingArchive] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -102,14 +105,27 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
   const handleAddList = async () => {
     const name = newListName.trim();
     if (!name) return;
-    await api.createList(name);
+    const created = await api.createList(name);
     setNewListName('');
-    load();
+    setLists(prev => [...prev, created]);
   };
 
   const handleDeleteList = async (id: string) => {
-    await api.deleteList(id);
-    load();
+    const prevLists = lists;
+    const prevTasksSnapshot = tasks;
+    setLists(prev => prev.filter(l => l.id !== id));
+    setTasks(prev => prev.filter(t => t.listId !== id));
+    setArchivedByList(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    try {
+      await api.deleteList(id);
+    } catch {
+      setLists(prevLists);
+      setTasks(prevTasksSnapshot);
+    }
   };
 
   const toggleDone = (listId: string) => {
@@ -118,6 +134,29 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
       if (next.has(listId)) next.delete(listId); else next.add(listId);
       return next;
     });
+  };
+
+  const toggleArchive = async (listId: string) => {
+    const isOpen = expandedArchive.has(listId);
+    setExpandedArchive(prev => {
+      const next = new Set(prev);
+      if (isOpen) next.delete(listId); else next.add(listId);
+      return next;
+    });
+    if (!isOpen && !archivedByList[listId]) {
+      setLoadingArchive(prev => new Set(prev).add(listId));
+      try {
+        const archived = await api.getArchivedTasks(listId);
+        setArchivedByList(prev => ({ ...prev, [listId]: archived }));
+      } catch { /* noop */ }
+      finally {
+        setLoadingArchive(prev => {
+          const next = new Set(prev);
+          next.delete(listId);
+          return next;
+        });
+      }
+    }
   };
 
   const sortActive = (a: Task, b: Task) => {
@@ -324,6 +363,28 @@ export default function ViewTasks({ onBack }: { onBack: () => void }) {
                   ))}
                 </div>
               )}
+              <div className="archive-section">
+                <button className="done-toggle" onClick={() => toggleArchive(list.id)}>
+                  {expandedArchive.has(list.id) ? '▾' : '▸'} Archived
+                  {archivedByList[list.id] ? ` (${archivedByList[list.id].length})` : ''}
+                </button>
+                {expandedArchive.has(list.id) && (
+                  loadingArchive.has(list.id)
+                    ? <p className="empty">Loading archived...</p>
+                    : (archivedByList[list.id] && archivedByList[list.id].length > 0
+                        ? archivedByList[list.id].map(task => (
+                          <div key={task.id} className="task-row done archived">
+                            <span className="task-indicator">📦</span>
+                            <span className="task-text">{task.text}</span>
+                            <button className="delete-task-btn" onClick={() => {
+                              setArchivedByList(prev => ({ ...prev, [list.id]: prev[list.id].filter(t => t.id !== task.id) }));
+                              api.deleteTask(task.id, task.listId).catch(() => { /* noop */ });
+                            }} aria-label="Delete archived task">−</button>
+                          </div>
+                        ))
+                        : <p className="empty">No archived tasks</p>)
+                )}
+              </div>
             </div>
           );
         })}

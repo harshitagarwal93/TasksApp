@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import Home from './pages/Home';
 import AddTask from './pages/AddTask';
-import ViewTasks from './pages/ViewTasks';
+const ViewTasks = lazy(() => import('./pages/ViewTasks'));
 
 type View = 'home' | 'add' | 'view';
 
@@ -14,6 +14,10 @@ export default function App() {
     case 'add':
       return <AddTask onBack={() => setView('home')} />;
     case 'view':
-      return <ViewTasks onBack={() => setView('home')} />;
+      return (
+        <Suspense fallback={<div className="loading">Loading...</div>}>
+          <ViewTasks onBack={() => setView('home')} />
+        </Suspense>
+      );
   }
 }
