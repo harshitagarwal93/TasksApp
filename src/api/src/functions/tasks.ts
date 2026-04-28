@@ -24,13 +24,13 @@ app.http("getTasks", {
     let parameters: { name: string; value: string }[] = [];
 
     if (listId) {
-      query = "SELECT * FROM c WHERE c.listId = @listId ORDER BY c.sortOrder ASC, c.createdAt ASC";
+      query = "SELECT * FROM c WHERE c.listId = @listId";
       parameters = [{ name: "@listId", value: listId }];
     } else {
       // Only return tasks for lists this tenant can see
       const visibleIds = await getVisibleListIds();
       if (visibleIds.length === 0) return { jsonBody: [] };
-      query = `SELECT * FROM c WHERE ARRAY_CONTAINS(@ids, c.listId) ORDER BY c.sortOrder ASC, c.createdAt ASC`;
+      query = `SELECT * FROM c WHERE ARRAY_CONTAINS(@ids, c.listId)`;
       parameters = [{ name: "@ids", value: visibleIds as unknown as string }];
     }
 
