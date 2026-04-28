@@ -324,7 +324,7 @@ app.http("reorderTasks", {
 app.http("backfillTaskTenants", {
   methods: ["POST"],
   authLevel: "anonymous",
-  route: "admin/backfill-task-tenants",
+  route: "tasks/admin-backfill-tenants",
   handler: async (request: HttpRequest, _context: InvocationContext): Promise<HttpResponseInit> => {
     const adminKey = process.env.ADMIN_KEY;
     if (!adminKey) return { status: 503, jsonBody: { error: "ADMIN_KEY not configured" } };
